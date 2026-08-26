@@ -1,0 +1,32 @@
+name: Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: pytest
+      - name: Produce synthetic incident report
+        run: incident-response-demo --output artifacts/incident-report.json
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-incident-report
+          path: artifacts/incident-report.json
