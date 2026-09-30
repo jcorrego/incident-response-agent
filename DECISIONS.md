@@ -32,8 +32,11 @@ commit. A future mutating adapter would need upstream idempotency and a separate
 approval protocol before it could use this recovery path.
 
 An evidence pair must share the incident ID and have distinct alert/change kinds.
-A mismatch or missing tool escalates without a hypothesis. Retryable failures get
-two attempts per stage; a late synchronous result is discarded after a per-attempt
-elapsed budget. This is not preemptive timeout or distributed execution. Holding a
+A mismatch, missing alert/change, or unusable change content escalates before a
+hypothesis is checkpointed. If the runbook is missing, analysis has already
+checkpointed a hypothesis; escalation preserves it in local state but produces no
+report or mitigation proposal. Retryable failures get two attempts per stage; a late
+synchronous result is discarded after a per-attempt elapsed budget. This is not
+preemptive timeout or distributed execution. Holding a
 SQLite write transaction during a tool read deliberately trades throughput for a
 small, understandable local recovery boundary. No real service data belongs here.
