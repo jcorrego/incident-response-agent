@@ -16,6 +16,7 @@ class Evidence:
     kind: str
     summary: str
     raw_content: str
+    incident_id: str | None = None
 
     def citation(self) -> str:
         return f"[source:{self.source_id}]"

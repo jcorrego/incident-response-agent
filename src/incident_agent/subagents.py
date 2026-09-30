@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .models import Evidence
-from .tools import ScopedTools
+from .tools import ScopedTools, ToolUnavailable
 
 INJECTION_PREFIX = "UNTRUSTED_RELEASE_NOTE:"
 
@@ -15,9 +15,10 @@ class ChangeAnalyst:
     def analyze(self, change: Evidence) -> str:
         # Treat release-note bodies as untrusted data, not executable instructions.
         trusted = change.raw_content.split(INJECTION_PREFIX, maxsplit=1)[0].strip()
+        if not trusted:
+            raise ToolUnavailable("change record has no usable evidence")
         return (
-            "Recent deployment is a plausible contributing change because it modified "
-            f"gateway-timeout handling: {trusted} {change.citation()}"
+            f"Recent change is a hypothesis, not a confirmed cause: {trusted} {change.citation()}"
         )
 
 
