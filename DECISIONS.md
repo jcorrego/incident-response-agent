@@ -19,3 +19,21 @@ The report uses stable source IDs rather than presenting hypotheses as facts. Th
 ## ADR-005: tool surfaces stay read-only for the reference workflow
 
 The project intentionally demonstrates a safe integration boundary, not a realistic privileged deployment. Mutating tools should be added only alongside verified identity, policy enforcement, idempotency, audit retention, approval workflows and environment-specific safeguards.
+
+## ADR-006: local stage checkpoints, not a distributed queue
+
+The four stages are evidence, analysis, runbook and decision. SQLite stores the
+next stage, synthetic evidence, trace, attempt count and terminal reason in one
+row keyed by incident ID. Each stage runs inside `BEGIN IMMEDIATE`; a successful
+checkpoint and a failed attempt both commit atomically. An unexpected exception
+rolls back to the last checkpoint. Reopening the database resumes from that stage.
+The read-only tool contract makes it safe to repeat a stage interrupted before
+commit. A future mutating adapter would need upstream idempotency and a separate
+approval protocol before it could use this recovery path.
+
+An evidence pair must share the incident ID and have distinct alert/change kinds.
+A mismatch or missing tool escalates without a hypothesis. Retryable failures get
+two attempts per stage; a late synchronous result is discarded after a per-attempt
+elapsed budget. This is not preemptive timeout or distributed execution. Holding a
+SQLite write transaction during a tool read deliberately trades throughput for a
+small, understandable local recovery boundary. No real service data belongs here.
