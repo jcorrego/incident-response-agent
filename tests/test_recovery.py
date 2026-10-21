@@ -200,6 +200,25 @@ def test_missing_runbook_stops_without_report(tmp_path):
     assert "hypothesis" in state.data
 
 
+def test_in_process_runbook_bound_to_an_incident_is_a_conflict(tmp_path):
+    # Defense in depth: the orchestrator rejects an incident-tagged runbook from any
+    # adapter, not only from the MCP contract.
+    class TaggedRunbookTools(ScopedTools):
+        def get_runbook(self, service):
+            runbook = super().get_runbook(service)
+            return Evidence(
+                runbook.source_id, runbook.kind, runbook.summary, runbook.raw_content, "inc-999"
+            )
+
+    agent = IncidentOrchestrator(TaggedRunbookTools(), state_path=tmp_path / "runs.sqlite")
+    with pytest.raises(WorkflowStopped, match="bound to an incident"):
+        agent.investigate("inc-042", "checkout-api")
+    state = agent.get_state("inc-042")
+    assert state is not None
+    assert state.stage == "escalated"
+    assert "runbook" not in state.data and "report" not in state.data
+
+
 def test_cli_resumes_in_new_process_and_does_not_write_report_on_failure(tmp_path):
     import sys
 

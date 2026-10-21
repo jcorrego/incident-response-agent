@@ -53,6 +53,8 @@ class ToolContract:
     tool: str
     argument: str
     kind: str
+    # Service-scoped lookups (runbooks) must not claim to belong to an incident.
+    incident_scoped: bool = True
 
 
 CONTRACTS = {
@@ -60,7 +62,9 @@ CONTRACTS = {
     "get_recent_change": ToolContract(
         "source-control", "get_recent_change", "incident_id", "change"
     ),
-    "get_runbook": ToolContract("runbooks", "get_runbook", "service", "runbook"),
+    "get_runbook": ToolContract(
+        "runbooks", "get_runbook", "service", "runbook", incident_scoped=False
+    ),
 }
 
 
@@ -280,6 +284,8 @@ def _parse_evidence(contract: ToolContract, result: CallToolResult) -> Evidence:
     if not all(isinstance(record[key], str) for key in text_fields):
         raise invalid
     if record["incident_id"] is not None and not isinstance(record["incident_id"], str):
+        raise invalid
+    if not contract.incident_scoped and record["incident_id"] is not None:
         raise invalid
     if record["kind"] != contract.kind or not SOURCE_ID.fullmatch(record["source_id"]):
         raise invalid

@@ -28,6 +28,12 @@ def hostile(mode: str, *extra: str) -> dict:
     return services
 
 
+def hostile_runbooks(mode: str) -> dict:
+    services = default_services()
+    services["runbooks"] = stdio_service(sys.executable, [str(HOSTILE), mode])
+    return services
+
+
 def process_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -100,6 +106,30 @@ def test_contract_valid_evidence_for_another_incident_is_a_conflict(tmp_path):
         assert tools.calls == ["get_alert", "get_recent_change"]
     state = agent.get_state("inc-042")
     assert state.stage == "escalated" and state.attempts == 1 and state.data == {}
+
+
+def test_runbook_bound_to_another_incident_escalates_without_report(tmp_path):
+    # Runbooks are service-scoped: one tagged with any incident ID is rejected by the
+    # MCP contract before it can be checkpointed or cited.
+    with McpScopedTools(hostile_runbooks("runbook-other-incident")) as tools:
+        agent = IncidentOrchestrator(tools, state_path=tmp_path / "runs.sqlite")
+        with pytest.raises(WorkflowStopped, match="get_runbook returned evidence outside"):
+            agent.investigate("inc-042", "checkout-api")
+        assert tools.calls == ["get_alert", "get_recent_change", "get_runbook"]
+    state = agent.get_state("inc-042")
+    assert state is not None
+    assert state.stage == "escalated" and state.attempts == 1
+    assert "runbook" not in state.data and "report" not in state.data
+
+
+def test_unbound_hostile_runbook_still_completes(tmp_path):
+    # Control case: the same hostile server with a null incident ID is accepted, so the
+    # rejection above is caused by the incident binding and nothing else.
+    with McpScopedTools(hostile_runbooks("runbook-unbound")) as tools:
+        agent = IncidentOrchestrator(tools, state_path=tmp_path / "runs.sqlite")
+        report = agent.investigate("inc-042", "checkout-api")
+    assert report.evidence[2].source_id == "runbook-checkout-12"
+    assert report.evidence[2].incident_id is None
 
 
 @pytest.mark.parametrize("mode", ["deep-json", "huge-int"])

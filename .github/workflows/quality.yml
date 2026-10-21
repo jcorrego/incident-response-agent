@@ -23,6 +23,12 @@ jobs:
         run: ruff check .
       - name: Test
         run: pytest
+      - name: Test against the minimum supported MCP SDK
+        run: |
+          python -m venv /tmp/mcp-min
+          /tmp/mcp-min/bin/pip install -q -e '.[dev]' 'mcp==1.22.0'
+          /tmp/mcp-min/bin/python -c "import mcp.types as t; assert 'structuredContent' in t.CallToolResult.model_fields"
+          /tmp/mcp-min/bin/python -m pytest
       - name: Produce synthetic incident report
         run: incident-response-demo --output artifacts/incident-report.json
       - name: Produce the same report over stdio MCP services

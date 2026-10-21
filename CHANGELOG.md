@@ -11,10 +11,14 @@ No release tag has been published yet. Entries are grouped by merged work.
 - Bound MCP calls with a request timeout; hung or crashed services retry once and
   then escalate without checkpointing a hypothesis.
 - Launch services with an allowlisted environment.
+- Reject a runbook (service-scoped evidence) that carries any incident ID, both in
+  the MCP contract and in the orchestrator.
+- Require `mcp>=1.22`: the oldest SDK whose clean install passes the suite and
+  exposes structured tool results. CI re-runs the tests against that floor.
 - Hostile-server tests over real stdio: mutating tool, missing annotations, wrong
-  kind, extra field, other-incident evidence, tool error, decoder-breaking text
-  payloads, startup hang (child must be terminated), call hang, slow reply, crash
-  and environment probe.
+  kind, extra field, other-incident evidence, incident-tagged runbook, tool error,
+  decoder-breaking text payloads, startup hang (child must be terminated), call
+  hang, slow reply, crash and environment probe.
 
 ## Merged to main, not tagged
 
