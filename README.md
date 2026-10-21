@@ -28,7 +28,27 @@ Synthetic runbook ─► RunbookMatcher ────────┘             
                                           approval-required mitigation proposal
 ```
 
-The `ScopedTools` interface represents an MCP-style tool boundary. It is deliberately read-only: no tool can deploy, roll back, edit access or mutate customer state. In a production implementation, each tool would be exposed over MCP with verified identity, tenant scopes, server-side policy and audit logging — as demonstrated separately in [`mcp-policy-gateway`](https://github.com/jcorrego/mcp-policy-gateway).
+Evidence comes through an `EvidenceTools` interface with two implementations:
+
+- `ScopedTools` (default): in-process synthetic fixtures.
+- `McpScopedTools` (`--tools mcp`): three separate stdio MCP servers —
+  synthetic observability, source control and runbooks — each exposing exactly
+  one read-only tool.
+
+```text
+IncidentOrchestrator ─► McpScopedTools ─┬─ stdio ─► synthetic-observability  get_alert
+  (sync, checkpointed)   (client-side   ├─ stdio ─► synthetic-source-control get_recent_change
+                          contract)     └─ stdio ─► synthetic-runbooks       get_runbook
+```
+
+No tool can deploy, roll back, edit access or mutate state. The MCP client does
+not trust servers to describe themselves: it refuses to start if a service
+advertises any extra tool or omits read-only annotations, and it validates every
+response against the evidence schema and expected kind (see ADR-007). The
+services are unauthenticated local processes; verified identity, tenant scopes
+and audit are demonstrated separately in
+[`mcp-policy-gateway`](https://github.com/jcorrego/mcp-policy-gateway) and are
+not yet propagated here.
 
 ## Agent skill
 
@@ -64,6 +84,16 @@ across processes without deleting a report or rerunning completed reads:
 # Last command exits 2. Inspect the saved escalation with SQLite or get_state().
 ```
 
+To run the same workflow over real MCP sessions, with each evidence source in its
+own server process:
+
+```bash
+.venv/bin/incident-response-demo --tools mcp --state artifacts/mcp-demo.sqlite
+.venv/bin/incident-mcp-service observability   # run one service alone over stdio
+```
+
+The MCP report is identical to the in-process report, including source IDs.
+
 Use a separate `--state` file for a new demonstration of the same incident. The
 incident ID and service form an immutable run identity within one state file.
 `--step` commits one stage; normal invocation resumes until a report or escalation.
@@ -81,15 +111,23 @@ incident IDs stop immediately. No step executes a mutation.
 5. SQLite checkpoints survive a new process, completed reads are not repeated,
    transient failures have a persisted retry count, and conflicting/missing
    evidence never produces a report.
+6. Over real stdio MCP, hostile test servers cannot widen the tool surface
+   (an extra `rollback_deployment` tool or missing read-only annotation stops
+   startup), relabel or extend evidence, or attach evidence for another incident.
+   Hung and crashed servers retry once then escalate within budget; server tool
+   errors and `not_found` stop without retry; services do not receive the
+   caller's environment variables.
 
 ## Recovery limits
 
 This is local SQLite, not a distributed workflow engine. A transaction serializes
 workers against one database file while a stage reads tools and commits its result.
 Crash recovery may repeat the *current* read-only stage, never a completed stage.
-Tool calls remain synthetic in-process methods. The five-second per-attempt elapsed
-budget discards a late result but cannot cancel a hung synchronous tool; no global
-deadline, backoff scheduler, remote lease, or upstream idempotency key exists.
+In-process tools are synchronous methods: the five-second per-attempt elapsed
+budget discards a late result but cannot cancel a hung call. MCP calls have a
+client request timeout (two seconds by default), so a hung server is abandoned,
+though its process keeps running until the adapter closes. There is no global
+deadline, backoff scheduler, remote lease, or upstream idempotency key.
 The synthetic `incident_id` fields prove only a record-level mismatch, not whether
 two real sources genuinely contradict each other. Stored raw synthetic evidence is
 not encrypted or redacted; do not put real incident data in the database.
@@ -98,7 +136,8 @@ not encrypted or redacted; do not put real incident data in the database.
 
 A deployment would add:
 
-- MCP transport and identity propagation;
+- identity and scope propagation from the orchestrator through the policy gateway;
+- authenticated remote MCP transport instead of local stdio child processes;
 - connectors for observability, source control, ticketing and runbooks;
 - tenant/RBAC policy and durable audit records;
 - traces, latency/cost telemetry and evaluation data;

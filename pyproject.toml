@@ -11,13 +11,17 @@ requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [{name = "Juan Carlos Orrego Díaz"}]
 keywords = ["ai-agents", "incident-response", "mcp", "observability", "agentic-workflows"]
-dependencies = []
+# 1.22.0 is the oldest SDK whose clean install passes the suite (structured tool
+# results arrived in 1.10; 1.10-1.21 fail to import with current pydantic). CI
+# re-runs the tests against this floor.
+dependencies = ["mcp>=1.22,<2.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.8"]
 
 [project.scripts]
 incident-response-demo = "incident_agent.cli:main"
+incident-mcp-service = "incident_agent.mcp_services:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/incident_agent"]

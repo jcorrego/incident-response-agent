@@ -8,7 +8,7 @@ from typing import Any
 from .models import ApprovalStatus, Evidence, IncidentReport, Proposal
 from .state import CheckpointStore, RunState
 from .subagents import ChangeAnalyst, EvidenceCollector, RunbookMatcher
-from .tools import ScopedTools, ToolUnavailable
+from .tools import EvidenceTools, ScopedTools, ToolUnavailable
 
 
 class WorkflowStopped(ToolUnavailable):
@@ -20,7 +20,7 @@ class IncidentOrchestrator:
 
     def __init__(
         self,
-        tools: ScopedTools | None = None,
+        tools: EvidenceTools | None = None,
         *,
         state_path: Path | str = ":memory:",
         max_attempts: int = 2,
@@ -91,6 +91,10 @@ class IncidentOrchestrator:
             runbook = self.runbook_matcher.match(self.tools, state.service)
             if runbook.kind != "runbook" or not runbook.source_id:
                 raise ToolUnavailable("runbook evidence conflict: invalid source")
+            # Runbooks are service-scoped; one tagged to an incident is not this run's
+            # evidence, whichever tool adapter returned it.
+            if runbook.incident_id is not None:
+                raise ToolUnavailable("runbook evidence conflict: bound to an incident")
             next_stage = "decision"
             update = {"runbook": asdict(runbook)}
             event = {"step": "match_runbook", "status": "completed", "sources": 1}

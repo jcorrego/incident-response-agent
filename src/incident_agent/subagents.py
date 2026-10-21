@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from .models import Evidence
-from .tools import ScopedTools, ToolUnavailable
+from .tools import EvidenceTools, ToolUnavailable
 
 INJECTION_PREFIX = "UNTRUSTED_RELEASE_NOTE:"
 
 
 class EvidenceCollector:
-    def collect(self, tools: ScopedTools, incident_id: str) -> list[Evidence]:
+    def collect(self, tools: EvidenceTools, incident_id: str) -> list[Evidence]:
         return [tools.get_alert(incident_id), tools.get_recent_change(incident_id)]
 
 
@@ -23,5 +23,5 @@ class ChangeAnalyst:
 
 
 class RunbookMatcher:
-    def match(self, tools: ScopedTools, service: str) -> Evidence:
+    def match(self, tools: EvidenceTools, service: str) -> Evidence:
         return tools.get_runbook(service)
