@@ -40,3 +40,31 @@ synchronous result is discarded after a per-attempt elapsed budget. This is not
 preemptive timeout or distributed execution. Holding a
 SQLite write transaction during a tool read deliberately trades throughput for a
 small, understandable local recovery boundary. No real service data belongs here.
+
+## ADR-007: evidence crosses a real MCP boundary under a client-side contract
+
+`--tools mcp` replaces the in-process adapter with three separate stdio MCP
+servers (synthetic observability, source control and runbooks), each exposing
+one read-only tool. The orchestrator stays synchronous and checkpointed; an
+adapter owns the async MCP sessions on a background thread.
+
+The server is not trusted to describe itself honestly. The client therefore:
+
+- calls only one allowlisted tool name per service and refuses to start if a
+  service advertises any other tool, paginates its tool list, or omits
+  `readOnlyHint=true` / `destructiveHint=false`;
+- validates every response against the `Evidence` schema, the expected evidence
+  kind, a source-ID pattern and size limits, so a server cannot relabel a
+  release note as a runbook or smuggle extra fields;
+- leaves incident binding to the orchestrator, so contract-valid evidence for a
+  different incident still escalates as a conflict;
+- enforces a per-call MCP request timeout and maps timeouts and transport
+  failures to retryable errors, while `not_found`, tool errors and contract
+  violations stop immediately;
+- launches servers with an allowlisted environment instead of the caller's.
+
+Tool annotations are advisory metadata. The enforceable control is the client
+allowlist plus response validation. This ADR does not add identity: the
+services are unauthenticated local child processes. Propagating a verified
+principal and scopes through `mcp-policy-gateway` is the next step on the
+0.3 roadmap and is not claimed here.

@@ -8,7 +8,7 @@ from typing import Any
 from .models import ApprovalStatus, Evidence, IncidentReport, Proposal
 from .state import CheckpointStore, RunState
 from .subagents import ChangeAnalyst, EvidenceCollector, RunbookMatcher
-from .tools import ScopedTools, ToolUnavailable
+from .tools import EvidenceTools, ScopedTools, ToolUnavailable
 
 
 class WorkflowStopped(ToolUnavailable):
@@ -20,7 +20,7 @@ class IncidentOrchestrator:
 
     def __init__(
         self,
-        tools: ScopedTools | None = None,
+        tools: EvidenceTools | None = None,
         *,
         state_path: Path | str = ":memory:",
         max_attempts: int = 2,

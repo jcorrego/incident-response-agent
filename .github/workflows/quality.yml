@@ -25,8 +25,14 @@ jobs:
         run: pytest
       - name: Produce synthetic incident report
         run: incident-response-demo --output artifacts/incident-report.json
+      - name: Produce the same report over stdio MCP services
+        run: |
+          incident-response-demo --tools mcp --state artifacts/mcp-runs.sqlite --output artifacts/incident-report-mcp.json
+          python -c "import json; a=json.load(open('artifacts/incident-report.json')); b=json.load(open('artifacts/incident-report-mcp.json')); assert a == b, 'MCP report diverged'"
       - name: Upload report artifact
         uses: actions/upload-artifact@v4
         with:
           name: synthetic-incident-report
-          path: artifacts/incident-report.json
+          path: |
+            artifacts/incident-report.json
+            artifacts/incident-report-mcp.json
