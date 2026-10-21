@@ -61,7 +61,13 @@ The server is not trusted to describe itself honestly. The client therefore:
 - enforces a per-call MCP request timeout and maps timeouts and transport
   failures to retryable errors, while `not_found`, tool errors and contract
   violations stop immediately;
-- launches servers with an allowlisted environment instead of the caller's.
+- launches servers with an allowlisted environment instead of the caller's;
+- on shutdown, including a startup that times out, keeps the event loop running
+  until the session task has unwound every `stdio_client`, whose exit path
+  closes stdin and escalates to SIGTERM/SIGKILL. A bounded wait reports
+  incomplete cleanup instead of hanging the caller;
+- treats any text payload the JSON decoder rejects (malformed, too deeply
+  nested, oversized integer) as a contract violation, not an unexpected crash.
 
 Tool annotations are advisory metadata. The enforceable control is the client
 allowlist plus response validation. This ADR does not add identity: the

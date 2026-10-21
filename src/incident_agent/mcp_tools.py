@@ -26,6 +26,7 @@ import os
 import re
 import sys
 import threading
+import warnings
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, fields
 from datetime import timedelta
@@ -89,8 +90,9 @@ class McpScopedTools:
         *,
         call_timeout: float = 2.0,
         startup_timeout: float = 20.0,
+        cleanup_timeout: float = 15.0,
     ) -> None:
-        if call_timeout <= 0 or startup_timeout <= 0:
+        if call_timeout <= 0 or startup_timeout <= 0 or cleanup_timeout <= 0:
             raise ValueError("timeouts must be positive")
         self.services = services or default_services()
         missing = {contract.service for contract in CONTRACTS.values()} - set(self.services)
@@ -98,12 +100,15 @@ class McpScopedTools:
             raise ValueError(f"missing MCP service configuration: {sorted(missing)}")
         self.call_timeout = call_timeout
         self.startup_timeout = startup_timeout
+        self.cleanup_timeout = cleanup_timeout
+        self.cleanup_complete = True
         self.calls: list[str] = []
         self._sessions: dict[str, ClientSession] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._shutdown: asyncio.Event | None = None
         self._serving: concurrent.futures.Future[None] | None = None
+        self._finished = threading.Event()
 
     def __enter__(self) -> McpScopedTools:
         self.start()
@@ -115,6 +120,7 @@ class McpScopedTools:
     def start(self) -> None:
         if self._loop is not None:
             raise RuntimeError("MCP tools already started")
+        self._finished.clear()
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()
@@ -135,17 +141,28 @@ class McpScopedTools:
             return
         if self._shutdown is not None:
             loop.call_soon_threadsafe(self._shutdown.set)
-        if self._serving is not None:
-            try:
-                self._serving.result(10)
-            except BaseException:  # noqa: BLE001 - shutdown must still release the loop
-                self._serving.cancel()
+        elif self._serving is not None:
+            # Startup never finished (for example, a hung initialize). Cancel the
+            # owning task; cancelling the concurrent future only requests that.
+            self._serving.cancel()
+        # Keep the loop running until _serve has unwound every stdio_client. Its
+        # exit path closes stdin, waits briefly, then escalates SIGTERM -> SIGKILL,
+        # so this wait is bounded by the SDK's termination timeout per service.
+        self.cleanup_complete = self._finished.wait(self.cleanup_timeout)
+        if not self.cleanup_complete:
+            warnings.warn(
+                "MCP service cleanup exceeded budget; child processes may remain",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         loop.call_soon_threadsafe(loop.stop)
         if self._thread is not None:
             self._thread.join(10)
         loop.close()
         self._loop = None
         self._thread = None
+        self._shutdown = None
+        self._serving = None
         self._sessions = {}
 
     async def _serve(self, ready: concurrent.futures.Future[None]) -> None:
@@ -167,6 +184,8 @@ class McpScopedTools:
                 ready.set_exception(_root_cause(error))
                 return
             raise
+        finally:
+            self._finished.set()
 
     def get_alert(self, incident_id: str) -> Evidence:
         return self._call("get_alert", incident_id)
@@ -236,7 +255,9 @@ def _payload(result: CallToolResult) -> Any:
         return None
     try:
         return json.loads(texts[0].text)
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):
+        # ValueError covers JSONDecodeError and oversized integer literals;
+        # RecursionError covers hostile deeply nested payloads.
         return None
 
 

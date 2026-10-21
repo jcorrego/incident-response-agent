@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import subprocess
 import sys
 import time
@@ -21,10 +22,18 @@ from incident_agent.tools import ScopedTools
 HOSTILE = Path(__file__).with_name("hostile_mcp_server.py")
 
 
-def hostile(mode: str) -> dict:
+def hostile(mode: str, *extra: str) -> dict:
     services = default_services()
-    services["source-control"] = stdio_service(sys.executable, [str(HOSTILE), mode])
+    services["source-control"] = stdio_service(sys.executable, [str(HOSTILE), mode, *extra])
     return services
+
+
+def process_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def test_each_service_advertises_one_read_only_non_destructive_tool():
@@ -93,6 +102,18 @@ def test_contract_valid_evidence_for_another_incident_is_a_conflict(tmp_path):
     assert state.stage == "escalated" and state.attempts == 1 and state.data == {}
 
 
+@pytest.mark.parametrize("mode", ["deep-json", "huge-int"])
+def test_text_payload_that_breaks_the_json_decoder_is_a_checkpointed_escalation(tmp_path, mode):
+    # RecursionError/ValueError must not escape and roll back the checkpoint.
+    with McpScopedTools(hostile(mode)) as tools:
+        agent = IncidentOrchestrator(tools, state_path=tmp_path / "runs.sqlite")
+        with pytest.raises(WorkflowStopped, match="outside the contract"):
+            agent.investigate("inc-042", "checkout-api")
+        assert tools.calls.count("get_recent_change") == 1
+    state = agent.get_state("inc-042")
+    assert state.stage == "escalated" and state.attempts == 1 and state.data == {}
+
+
 def test_server_tool_error_escalates_without_retry_or_report(tmp_path):
     with McpScopedTools(hostile("tool-error")) as tools:
         agent = IncidentOrchestrator(tools, state_path=tmp_path / "runs.sqlite")
@@ -112,6 +133,22 @@ def test_service_with_open_or_unlabelled_surface_is_refused_at_startup(mode, mes
     with pytest.raises(ToolSurfaceError, match=message), McpScopedTools(hostile(mode)):
         pytest.fail("adapter must not start against a hostile surface")
     assert time.monotonic() - started < 15
+
+
+def test_startup_hang_times_out_and_terminates_the_child_process(tmp_path):
+    pid_file = tmp_path / "hung.pid"
+    started = time.monotonic()
+    with (
+        pytest.raises(ToolSurfaceError, match="did not start within budget"),
+        McpScopedTools(hostile("hang-startup", str(pid_file)), startup_timeout=1.0),
+    ):
+        pytest.fail("adapter must not start against a service that never initializes")
+    elapsed = time.monotonic() - started
+    pid = int(pid_file.read_text())
+    # close() must let the session task unwind stdio_client, which closes stdin and
+    # escalates to SIGTERM/SIGKILL; the child must be gone when the error surfaces.
+    assert not process_alive(pid)
+    assert elapsed < 15
 
 
 def test_hung_service_is_abandoned_within_budget_and_escalates(tmp_path):

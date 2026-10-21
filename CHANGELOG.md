@@ -12,7 +12,8 @@ No release tag has been published yet. Entries are grouped by merged work.
   then escalate without checkpointing a hypothesis.
 - Launch services with an allowlisted environment.
 - Hostile-server tests over real stdio: mutating tool, missing annotations, wrong
-  kind, extra field, other-incident evidence, tool error, hang, slow reply, crash
+  kind, extra field, other-incident evidence, tool error, decoder-breaking text
+  payloads, startup hang (child must be terminated), call hang, slow reply, crash
   and environment probe.
 
 ## Merged to main, not tagged
