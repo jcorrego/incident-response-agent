@@ -74,3 +74,34 @@ allowlist plus response validation. This ADR does not add identity: the
 services are unauthenticated local child processes. Propagating a verified
 principal and scopes through `mcp-policy-gateway` is the next step on the
 0.3 roadmap and is not claimed here.
+
+## ADR-008: SDK output validation is not a transport outage
+
+The SDK validates a server's advertised output schema inside `call_tool()`, before
+our evidence parser runs. Missing structured content, a schema-invalid result and
+an invalid advertised schema raise `RuntimeError`. Retrying that error used to let
+an untrusted server return an invalid first response followed by valid evidence,
+bypassing the intended first-violation stop rule.
+
+Treat `RuntimeError` from the SDK call as non-retryable. Do not match exception
+message prefixes, which are not a typed API and may change between SDK versions.
+This deliberately makes other SDK runtime errors terminal too. It can escalate
+an otherwise recoverable failure; that is preferable to accepting evidence after
+a contract violation. Typed `McpError`, request timeouts and other transport
+exceptions keep their existing bounded-retry behavior. Unexpected local errors
+outside the SDK call still propagate and roll back the current stage.
+
+Only the tool name and a fixed failure description reach the checkpoint trace.
+SDK schema errors can include the offending instance or schema, so their text is
+not copied into the saved reason. This is not general log redaction or encryption.
+The exception remains chained for local debugging, and checkpointed evidence is
+still synthetic-only.
+
+Tests use a low-level stdio server returning raw `CallToolResult` objects. A normal
+FastMCP server would validate its own output and could hide this client-side path.
+For invalid and missing structured replies, the second call would be valid; the
+test asserts the server actually received just one call. Invalid schema and a
+valid control exercise the same server. The terminal state is reopened and must
+still refuse to create a report. CI runs these tests on both the resolved SDK and
+the declared 1.22.0 floor. This change does not add remote identity, mutation
+permissions, trace correlation or a release claim.

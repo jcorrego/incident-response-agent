@@ -117,6 +117,9 @@ incident IDs stop immediately. No step executes a mutation.
    Hung and crashed servers retry once then escalate within budget; server tool
    errors and `not_found` stop without retry; services do not receive the
    caller's environment variables.
+7. SDK-side output-schema failures stop on the first reply, even when the server
+   would return valid evidence on retry. The terminal escalation survives reopening
+   the checkpoint database, without copying SDK validation details into its reason.
 
 ## Recovery limits
 

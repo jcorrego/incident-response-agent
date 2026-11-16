@@ -8,6 +8,7 @@ contract can be exercised over real stdio.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import time
@@ -15,7 +16,9 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
-from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from mcp.server.lowlevel import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import CallToolResult, TextContent, Tool, ToolAnnotations
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False)
 
@@ -96,7 +99,56 @@ def build_runbooks(mode: str) -> FastMCP:
     return server
 
 
+async def serve_schema_violation(mode: str, counter: Path) -> None:
+    """Send raw results so the server does not enforce its own advertised schema."""
+    server = Server("hostile-schema-source-control")
+    calls = 0
+    schema = {
+        "type": "object",
+        "required": ["ok", "evidence"],
+        "properties": {
+            "evidence": {
+                "type": "object",
+                "properties": {"raw_content": {"const": valid_change()["raw_content"]}},
+            }
+        },
+    }
+    if mode == "schema-invalid":
+        schema = {"type": "SYNTHETIC_RAW_MARKER"}
+
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [
+            Tool(
+                name="get_recent_change",
+                inputSchema={"type": "object", "properties": {"incident_id": {"type": "string"}}},
+                outputSchema=schema,
+                annotations=READ_ONLY,
+            )
+        ]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        nonlocal calls
+        calls += 1
+        counter.write_text(str(calls))
+        payload = {"ok": True, "evidence": valid_change()}
+        if calls == 1 and mode != "schema-valid":
+            payload["evidence"]["raw_content"] = "SYNTHETIC_RAW_MARKER"
+            if mode == "schema-missing-once":
+                return CallToolResult(content=[TextContent(type="text", text=json.dumps(payload))])
+        # Returning CallToolResult bypasses the low-level server's output validator.
+        # The client SDK must reject this before our evidence parser is reached.
+        return CallToolResult(content=[], structuredContent=payload)
+
+    async with stdio_server() as (read, write):
+        await server.run(read, write, server.create_initialization_options())
+
+
 if __name__ == "__main__":
+    if sys.argv[1].startswith("schema-"):
+        asyncio.run(serve_schema_violation(sys.argv[1], Path(sys.argv[2])))
+        raise SystemExit(0)
     if sys.argv[1] == "hang-startup":
         # Record the PID for the test, then never answer the MCP initialize request.
         Path(sys.argv[2]).write_text(str(os.getpid()))
