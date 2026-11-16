@@ -4,6 +4,13 @@ No release tag has been published yet. Entries are grouped by merged work.
 
 ## Unreleased
 
+- Fail closed on SDK-side output-schema validation errors instead of treating them
+  as retryable transport failures. A valid second reply cannot erase a first
+  contract violation; terminal escalation survives resume.
+- Exercise malformed structured output, missing structured output, an invalid
+  advertised schema and a valid control over real stdio MCP. Persist a minimized
+  failure reason, not the SDK exception text containing synthetic evidence.
+
 - Add three synthetic read-only stdio MCP services (`incident-mcp-service`) and an
   `--tools mcp` mode that runs the checkpointed workflow over real MCP sessions.
 - Fail closed when a service advertises an unexpected, paginated or non-read-only

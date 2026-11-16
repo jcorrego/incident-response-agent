@@ -220,6 +220,13 @@ class McpScopedTools:
         except McpError as error:
             message = f"{name} MCP transport failure: {error.error.message}"
             raise ToolUnavailable(message, retryable=True) from error
+        except RuntimeError as error:
+            # The SDK raises RuntimeError for advertised output-schema failures,
+            # before _parse_evidence can inspect a result. Never retry those: a
+            # second, valid reply must not erase the first contract violation.
+            # Other SDK RuntimeErrors also fail closed; do not match unstable
+            # exception text or persist it, since it can include raw evidence.
+            raise ToolUnavailable(f"{name} MCP output validation failed") from error
         except Exception as error:  # closed streams, dead process, broken pipe
             message = f"{name} MCP transport failure: {type(error).__name__}"
             raise ToolUnavailable(message, retryable=True) from error
